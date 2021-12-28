@@ -1,6 +1,6 @@
 [package]
 name = "srpc"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 
 repository = "https://github.com/znx3p0/srpc"
@@ -13,7 +13,7 @@ license = "MIT"
 [dependencies]
 # sia = { path = "../../sia/sia" }
 sia = "0.0.4"
-srpc-macro = { path = "../srpc-macro", version = "0.0.1" }
+srpc-macro = { path = "../srpc-macro", version = "0.0.2" }
 log = "0.4"
 serde_repr = "0.1"
 async-lock = "2.4.0"
