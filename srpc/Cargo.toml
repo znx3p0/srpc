@@ -6,7 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sia = "0.0.3"
+# sia = { path = "../../sia/sia" }
+sia = "0.0.4"
 srpc-macro = { path = "../srpc-macro", version = "0.0.1" }
 log = "0.4"
 serde_repr = "0.1"
