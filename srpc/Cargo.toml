@@ -3,6 +3,11 @@ name = "srpc"
 version = "0.0.1"
 edition = "2021"
 
+repository = "https://github.com/znx3p0/srpc"
+keywords = [ "rpc", "async", "network", "microservices", "api" ]
+description = "simple and extremely performant RPC server built on top of Sia"
+license = "MIT"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
