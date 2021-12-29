@@ -1,19 +1,19 @@
 [package]
 name = "srpc"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 
 repository = "https://github.com/znx3p0/srpc"
 keywords = [ "rpc", "async", "network", "microservices", "api" ]
-description = "simple and extremely performant RPC server built on top of Sia"
+description = "simple and extremely performant RPC server built on top of Canary"
 license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# sia = { path = "../../sia/sia" }
-sia = "0.0.4"
-srpc-macro = { path = "../srpc-macro", version = "0.0.2" }
+# canary = { path = "../../canary/canary" }
+canary = "0.0.6"
+srpc-macro = { path = "../srpc-macro", version = "0.0.3" }
 log = "0.4"
 serde_repr = "0.1"
 async-lock = "2.4.0"

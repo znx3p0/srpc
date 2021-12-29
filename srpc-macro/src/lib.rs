@@ -43,12 +43,12 @@ fn struct_rpc(attrs: TokenStream, item: ItemStruct) -> TokenStream {
 
     quote!(
         #item
-        impl #implgen ::srpc::sia::routes::RegisterEndpoint for #ident #tygen #whre {
+        impl #implgen ::srpc::canary::routes::RegisterEndpoint for #ident #tygen #whre {
             const ENDPOINT: &'static str = #endpoint;
         }
-        #vis struct #peer_name #tygen #whre (pub ::srpc::sia::Channel, ::core::marker::PhantomData<( #(#ty_params),* )>);
-        impl #implgen From<::srpc::sia::Channel> for #peer_name #tygen #whre {
-            fn from(c: ::srpc::sia::Channel) -> Self {
+        #vis struct #peer_name #tygen #whre (pub ::srpc::canary::Channel, ::core::marker::PhantomData<( #(#ty_params),* )>);
+        impl #implgen From<::srpc::canary::Channel> for #peer_name #tygen #whre {
+            fn from(c: ::srpc::canary::Channel) -> Self {
                 #peer_name(c, ::core::marker::PhantomData::default())
             }
         }
@@ -272,7 +272,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
             },
             (Some(inputs), Some(_), MethodKind::Consume) => {
                 if inputs.len() != 1 {
-                    abort!(method.ident.span(), "methods that consume can only have one argument with type Channel and return a sia::Result<()>")
+                    abort!(method.ident.span(), "methods that consume can only have one argument with type Channel and return a canary::Result<()>")
                 }
                 quote! {
                     __srpc_action::#ident => {
@@ -282,7 +282,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
             }
             (Some(inputs), Some(_), MethodKind::Manual) => {
                 if inputs.len() != 1 {
-                    abort!(method.ident.span(), "manual methods can only have one argument with type Channel and return a sia::Result<Channel>")
+                    abort!(method.ident.span(), "manual methods can only have one argument with type Channel and return a canary::Result<Channel>")
                 }
                 quote! {
                     __srpc_action::#ident => {
@@ -293,12 +293,12 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                     }
                 }
             },
-            (None, None, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume need an argument with type Channel and return a sia::Result<()>"),
-            (None, Some(_), MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only return a sia::Result<()>"),
-            (Some(_), None, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only return a sia::Result<()>"),
-            (None, None, MethodKind::Manual) => abort!(method.ident.span(), "manual methods need an argument with type Channel and return a sia::Result<Channel>"),
-            (None, Some(_), MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only return a sia::Result<Channel>"),
-            (Some(_), None, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only return a sia::Result<Channel>"),
+            (None, None, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume need an argument with type Channel and return a canary::Result<()>"),
+            (None, Some(_), MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only return a canary::Result<()>"),
+            (Some(_), None, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only return a canary::Result<()>"),
+            (None, None, MethodKind::Manual) => abort!(method.ident.span(), "manual methods need an argument with type Channel and return a canary::Result<Channel>"),
+            (None, Some(_), MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only return a canary::Result<Channel>"),
+            (Some(_), None, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only return a canary::Result<Channel>"),
         }
     }).collect::<Vec<_>>();
 
@@ -321,14 +321,14 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
     let function = {
         let impl_generics = impl_generics.clone();
         quote! {
-            impl #impl_generics ::srpc::sia::service::Service for #top_type #whr {
+            impl #impl_generics ::srpc::canary::service::Service for #top_type #whr {
                 const ENDPOINT: &'static str = #endpoint;
                 type Pipeline = ();
                 type Meta = ::std::sync::Arc<#top_type_meta>;
                 fn service(
                     #meta_ident: ::std::sync::Arc<#top_type_meta>,
-                ) -> Box<dyn Fn(::srpc::sia::igcp::BareChannel) + Send + Sync + 'static> {
-                    ::sia::service::run_metadata(#meta_ident, |#meta_ident: ::std::sync::Arc<#top_type_meta>, mut #channel_ident: ::srpc::sia::Channel| async move {
+                ) -> Box<dyn Fn(::srpc::canary::igcp::BareChannel) + Send + Sync + 'static> {
+                    ::canary::service::run_metadata(#meta_ident, |#meta_ident: ::std::sync::Arc<#top_type_meta>, mut #channel_ident: ::srpc::canary::Channel| async move {
                         loop {
                             match #channel_ident.receive::<__srpc_action>().await? {
                                 #(#matches),*
@@ -343,14 +343,14 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
     let static_function = {
         let impl_generics = impl_generics.clone();
         quote! {
-            impl #impl_generics ::srpc::sia::service::StaticService for #top_type #whr {
+            impl #impl_generics ::srpc::canary::service::StaticService for #top_type #whr {
                 type Meta = ::std::sync::Arc<#top_type_meta>;
-                type Chan = ::srpc::sia::Channel;
+                type Chan = ::srpc::canary::Channel;
                 fn introduce(
                     #meta_ident: ::std::sync::Arc<#top_type_meta>,
-                    mut #channel_ident: ::srpc::sia::Channel,
-                ) -> ::srpc::sia::runtime::JoinHandle<::srpc::sia::Result<()>> {
-                    ::srpc::sia::runtime::spawn(async move {
+                    mut #channel_ident: ::srpc::canary::Channel,
+                ) -> ::srpc::canary::runtime::JoinHandle<::srpc::canary::Result<()>> {
+                    ::srpc::canary::runtime::spawn(async move {
                         loop {
                             match #channel_ident.receive::<__srpc_action>().await? {
                                 #(#matches),*
@@ -371,16 +371,21 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
         let result = method.output
             .map(|s| *s.clone())
             .unwrap_or(syn::parse2(quote!(())).unwrap());
-        let result = quote!( ::srpc::sia::Result<#result> );
+        let result = quote!( ::srpc::canary::Result<#result> );
 
         let inputs = method.inputs.unwrap_or_default();
         let mut params = vec![];
         let name = method.ident;
 
         let args = inputs.into_iter().map(|inp| {
-            let arg = &inp.pat;
+            let mut inp = inp.clone();
+            let ty = inp.ty;
+            let ty: Type = syn::parse2(quote!(impl std::borrow::Borrow<#ty>)).unwrap();
+            inp.ty = Box::new(ty);
+
             let ret = quote!( #inp );
 
+            let arg = inp.pat;
             params.push(arg);
             ret
         }).collect::<Vec<_>>();
@@ -390,7 +395,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                 pub async fn #name(&mut self #(,#args)*) -> #result {
                     self.0.send(__srpc_action::#name).await?;
                     #[allow(unused_parens)]
-                    self.0.send((#(#params),*)).await?;
+                    self.0.send((#(#params.borrow()),*)).await?;
                     self.0.receive().await
                 }
             },
@@ -404,7 +409,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                 pub async fn #name(&mut self #(,#args)*) -> #result {
                     self.0.send(__srpc_action::#name).await?;
                     #[allow(unused_parens)]
-                    self.0.send((#(#params),*)).await?;
+                    self.0.send((#(#params.borrow()),*)).await?;
                     Ok(())
                 }
             },
@@ -415,23 +420,23 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                 }
             },
             (true, true, MethodKind::Consume) => quote! {
-                pub async fn #name(mut self) -> ::srpc::sia::Result<::srpc::sia::Channel> {
+                pub async fn #name(mut self) -> ::srpc::canary::Result<::srpc::canary::Channel> {
                     self.0.send(__srpc_action::#name).await?;
                     Ok(self.0)
                 }
             },
             (true, true, MethodKind::Manual) => quote! {
-                pub async fn #name(mut self) -> ::srpc::sia::Result<::srpc::sia::Channel> {
+                pub async fn #name(mut self) -> ::srpc::canary::Result<::srpc::canary::Channel> {
                     self.0.send(__srpc_action::#name).await?;
                     Ok(self.0)
                 }
             },
-            (true, false, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only have an argument with type Channel and return a sia::Result<()>"),
-            (false, true, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only have an argument with type Channel and return a sia::Result<()>"),
-            (false, false, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only have an argument with type Channel and return a sia::Result<()>"),
-            (true, false, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only have an argument with type Channel and return a sia::Result<Channel>"),
-            (false, true, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only have an argument with type Channel and return a sia::Result<Channel>"),
-            (false, false, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only have an argument with type Channel and return a sia::Result<Channel>"),
+            (true, false, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only have an argument with type Channel and return a canary::Result<()>"),
+            (false, true, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only have an argument with type Channel and return a canary::Result<()>"),
+            (false, false, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only have an argument with type Channel and return a canary::Result<()>"),
+            (true, false, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only have an argument with type Channel and return a canary::Result<Channel>"),
+            (false, true, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only have an argument with type Channel and return a canary::Result<Channel>"),
+            (false, false, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only have an argument with type Channel and return a canary::Result<Channel>"),
         }
 
     }).collect::<Vec<_>>();

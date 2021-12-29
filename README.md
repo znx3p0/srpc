@@ -1,6 +1,6 @@
 # SRPC
 
-SRPC is a simple RPC system built on top of [Sia](https://github.com/znx3p0/sia),
+SRPC is a simple RPC system built on top of [Canary](https://github.com/znx3p0/canary),
 designed to be as ergonomic and zero-cost as possible.
 
 A simple example of an SRPC service

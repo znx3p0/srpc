@@ -1,7 +1,7 @@
 pub use async_lock::Mutex;
 pub use async_lock::RwLock;
-pub use sia;
-use sia::Channel;
+pub use canary;
+use canary::Channel;
 pub use srpc_macro::*;
 
 pub trait Peer {
@@ -12,7 +12,7 @@ pub trait IntoClient {
     fn client<T: Peer>(self) -> T::Struct;
 }
 
-impl IntoClient for sia::Channel {
+impl IntoClient for canary::Channel {
     fn client<T: Peer>(self) -> T::Struct {
         self.into()
     }
