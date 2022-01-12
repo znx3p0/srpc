@@ -1,6 +1,6 @@
 [package]
 name = "srpc"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 repository = "https://github.com/znx3p0/srpc"
@@ -11,9 +11,9 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-canary = { path = "../../canary/canary" }
-# canary = "0.1.0"
-srpc-macro = { path = "../srpc-macro", version = "0.0.3" }
+# canary = { path = "../../canary/canary" }
+canary = "0.1.1"
+srpc-macro = { path = "../srpc-macro", version = "0.1.1" }
 log = "0.4"
 serde_repr = "0.1"
 async-lock = "2.4.0"
