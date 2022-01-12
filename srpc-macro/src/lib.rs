@@ -1,32 +1,32 @@
-use proc_macro::{TokenStream};
-use quote::{quote, format_ident, ToTokens};
-use syn::{ImplItem, ItemImpl, ItemStruct, LitStr, Type, ReturnType, FnArg, Ident, PatType};
 use heck::ToSnakeCase;
+use proc_macro::TokenStream;
 use proc_macro_error::abort;
-
+use quote::{format_ident, quote, ToTokens};
+use syn::{FnArg, Ident, ImplItem, ItemImpl, ItemStruct, LitStr, PatType, ReturnType, Type};
 
 #[proc_macro_attribute]
 #[proc_macro_error::proc_macro_error]
 pub fn rpc(attrs: TokenStream, item: TokenStream) -> TokenStream {
     match syn::parse::<ItemStruct>(item.clone()) {
-        Ok(item) => {
-            struct_rpc(attrs, item)
-        },
+        Ok(item) => struct_rpc(attrs, item),
         Err(_) => {
             let item = syn::parse::<ItemImpl>(item).unwrap();
             match syn::parse::<Ident>(attrs.clone()) {
                 Ok(ident) => {
-                    let rpc: Result<RpcProvider, String> = Some(ident.to_string().as_str()).try_into();
+                    let rpc: Result<RpcProvider, String> =
+                        Some(ident.to_string().as_str()).try_into();
                     match rpc {
-                        Ok(rpc) => {
-                            impl_rpc_provider(rpc, item)
-                        },
-                        Err(span) => return syn::Error::new(ident.span(), span).to_compile_error().into(),
+                        Ok(rpc) => impl_rpc_provider(rpc, item),
+                        Err(span) => {
+                            return syn::Error::new(ident.span(), span)
+                                .to_compile_error()
+                                .into()
+                        }
                     }
-                },
+                }
                 Err(_) => impl_rpc_provider(RpcProvider::RwLock, item),
             }
-        },
+        }
     }
 }
 
@@ -34,7 +34,10 @@ fn struct_rpc(attrs: TokenStream, item: ItemStruct) -> TokenStream {
     let ident = &item.ident;
     let endpoint = syn::parse::<LitStr>(attrs)
         .and_then(|s| Ok(LitStr::new(&s.value().to_snake_case(), s.span())))
-        .unwrap_or(LitStr::new(&ident.clone().to_string().to_snake_case(), ident.span()));
+        .unwrap_or(LitStr::new(
+            &ident.clone().to_string().to_snake_case(),
+            ident.span(),
+        ));
     let vis = &item.vis;
     let peer_name = format_ident!("{}Peer", &ident);
     let (implgen, tygen, whre) = item.generics.split_for_impl();
@@ -69,9 +72,9 @@ struct Method<'a> {
 }
 
 enum MethodKind {
-    Normal,   // normal rpc
+    Normal,  // normal rpc
     Consume, // consume channel
-    Manual, // reintroduce
+    Manual,  // reintroduce
 }
 
 enum RpcProvider {
@@ -107,7 +110,7 @@ impl RpcProvider {
                 } else {
                     quote!(#meta.read().await)
                 }
-            },
+            }
             RpcProvider::Mutex => quote! {
                 #meta.lock().await
             },
@@ -133,10 +136,24 @@ impl RpcProvider {
 
 fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
     item.attrs.clear();
-    let methods = item.items.clone()
+    let methods = item
+        .items
+        .clone()
         .into_iter()
-        .filter(|s| if let ImplItem::Method(_) = s { true } else { false })
-        .map(|s| if let ImplItem::Method(s) = s { s } else { unreachable!() })
+        .filter(|s| {
+            if let ImplItem::Method(_) = s {
+                true
+            } else {
+                false
+            }
+        })
+        .map(|s| {
+            if let ImplItem::Method(s) = s {
+                s
+            } else {
+                unreachable!()
+            }
+        })
         .collect::<Vec<_>>();
 
     let top_type_name = {
@@ -151,7 +168,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
     let top_type_meta = provider.get_type(&top_type);
     let mut method_names = methods.iter().map(|s| &s.sig.ident).collect::<Vec<_>>();
     method_names.sort();
-    let repr =  {
+    let repr = {
         match method_names.len() {
             0 => quote! { #[derive(::srpc::__private::Serialize, ::srpc::__private::Deserialize)] },
             num if num < (u8::MAX as usize) => quote! {
@@ -181,39 +198,52 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
         }
     );
 
+    let methods = methods.iter().map(|s| {
+        let output = match &s.sig.output {
+            ReturnType::Default => None,
+            ReturnType::Type(_, ty) => Some(ty),
+        };
 
-    let methods = methods.iter()
-        .map(|s| {
-            let output = match &s.sig.output {
-                ReturnType::Default => None,
-                ReturnType::Type(_, ty) => Some(ty),
-            };
+        let mut mutable = false;
+        let consume = s
+            .attrs
+            .iter()
+            .any(|attr| quote!(#[consume]).to_string() == quote!(#attr).to_string());
+        let manual = s
+            .attrs
+            .iter()
+            .any(|attr| quote!(#[manual]).to_string() == quote!(#attr).to_string());
+        let consume = match (consume, manual) {
+            (false, true) => MethodKind::Manual,
+            (true, false) => MethodKind::Consume,
+            (false, false) => MethodKind::Normal,
+            (true, true) => abort!(
+                &s.sig.ident.span(),
+                "cannot have a method with consume and manual"
+            ),
+        };
 
-            let mut mutable = false;
-            let consume = s.attrs.iter()
-                .any(|attr| quote!(#[consume]).to_string() == quote!(#attr).to_string());
-            let manual = s.attrs.iter()
-                .any(|attr|
-                    quote!(#[manual]).to_string() == quote!(#attr).to_string());
-            let consume = match (consume, manual) {
-                (false, true) => MethodKind::Manual,
-                (true, false) => MethodKind::Consume,
-                (false, false) => MethodKind::Normal,
-                (true, true) => abort!(&s.sig.ident.span(), "cannot have a method with consume and manual")
-            };
-
-            let iter = s.sig.inputs.iter().filter_map(|i| match i {
+        let iter = s
+            .sig
+            .inputs
+            .iter()
+            .filter_map(|i| match i {
                 FnArg::Receiver(s) => {
                     mutable = s.mutability.is_some();
                     None
-                },
+                }
                 FnArg::Typed(ty) => Some(ty),
-            }).collect::<Vec<_>>();
-            let inputs = if !iter.is_empty() {
-                Some(iter)
-            } else { None };
-            Method { ident: &s.sig.ident, output, inputs, mutable, consume }
-        });
+            })
+            .collect::<Vec<_>>();
+        let inputs = if !iter.is_empty() { Some(iter) } else { None };
+        Method {
+            ident: &s.sig.ident,
+            output,
+            inputs,
+            mutable,
+            consume,
+        }
+    });
 
     let meta_ident = format_ident!("__srpc_inner_meta");
     let channel_ident = format_ident!("__srpc_inner_channel");
@@ -303,19 +333,19 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
         }
     }).collect::<Vec<_>>();
 
-
     let (_, ty_generics, whr) = item.generics.split_for_impl();
     let impl_generics = {
-        let s = item.generics.type_params()
-            .map(|s| {
-                let mut s = s.clone();
-                s.bounds.push(syn::parse2(quote!(Send)).unwrap());
-                s.bounds.push(syn::parse2(quote!(Sync)).unwrap());
-                s.bounds.push(syn::parse2(quote!('static)).unwrap());
-                s.bounds.push(syn::parse2(quote!(::srpc::__private::Serialize)).unwrap());
-                s.bounds.push(syn::parse2(quote!(::srpc::__private::DeserializeOwned)).unwrap());
-                s
-            });
+        let s = item.generics.type_params().map(|s| {
+            let mut s = s.clone();
+            s.bounds.push(syn::parse2(quote!(Send)).unwrap());
+            s.bounds.push(syn::parse2(quote!(Sync)).unwrap());
+            s.bounds.push(syn::parse2(quote!('static)).unwrap());
+            s.bounds
+                .push(syn::parse2(quote!(::srpc::__private::Serialize)).unwrap());
+            s.bounds
+                .push(syn::parse2(quote!(::srpc::__private::DeserializeOwned)).unwrap());
+            s
+        });
         quote!(<#(#s),*>)
     };
     let endpoint = &top_type_name.to_string().to_snake_case();
@@ -447,22 +477,30 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
         }
     };
 
-    item.items.iter_mut().map(|s| {
-        if let ImplItem::Method(method) = s {
-            let attrs = method.attrs.clone();
-            let mut new_attrs = vec![];
-            for attr in attrs {
-                if quote!(#[consume]).to_string() != quote!(#attr).to_string() && quote!(#[manual]).to_string() != quote!(#attr).to_string() {
-                    new_attrs.push(attr)
-                }
-            }
-            method.attrs = new_attrs;
-        }
-    }).for_each(drop);
-    item.generics.type_params_mut()
+    item.items
+        .iter_mut()
         .map(|s| {
-            s.bounds.push(syn::parse2(quote!(::srpc::__private::Serialize)).unwrap());
-            s.bounds.push(syn::parse2(quote!(::srpc::__private::DeserializeOwned)).unwrap());
+            if let ImplItem::Method(method) = s {
+                let attrs = method.attrs.clone();
+                let mut new_attrs = vec![];
+                for attr in attrs {
+                    if quote!(#[consume]).to_string() != quote!(#attr).to_string()
+                        && quote!(#[manual]).to_string() != quote!(#attr).to_string()
+                    {
+                        new_attrs.push(attr)
+                    }
+                }
+                method.attrs = new_attrs;
+            }
+        })
+        .for_each(drop);
+    item.generics
+        .type_params_mut()
+        .map(|s| {
+            s.bounds
+                .push(syn::parse2(quote!(::srpc::__private::Serialize)).unwrap());
+            s.bounds
+                .push(syn::parse2(quote!(::srpc::__private::DeserializeOwned)).unwrap());
         })
         .for_each(drop);
 
@@ -477,7 +515,5 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
             #peer_impl
         };
     );
-    // std::fs::write("expands.rs", ts.to_string()).unwrap();
     ts.into()
 }
-
