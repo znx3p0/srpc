@@ -43,6 +43,7 @@ fn struct_rpc(attrs: TokenStream, item: ItemStruct) -> TokenStream {
 
     quote!(
         #item
+        #[cfg(not(target_arch = "wasm32"))]
         impl #implgen ::srpc::canary::routes::RegisterEndpoint for #ident #tygen #whre {
             const ENDPOINT: &'static str = #endpoint;
         }
@@ -460,22 +461,23 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
     }).for_each(drop);
     item.generics.type_params_mut()
         .map(|s| {
-            // s.bounds.push(syn::parse2(quote!(Send)).unwrap());
-            // s.bounds.push(syn::parse2(quote!(Sync)).unwrap());
-            // s.bounds.push(syn::parse2(quote!('static)).unwrap());
             s.bounds.push(syn::parse2(quote!(::srpc::__private::Serialize)).unwrap());
             s.bounds.push(syn::parse2(quote!(::srpc::__private::DeserializeOwned)).unwrap());
         })
         .for_each(drop);
 
-    quote!(
+    let ts = quote!(
         const _: () = {
             #item
             #enum_repr
+            #[cfg(not(target_arch = "wasm32"))]
             #function
+            #[cfg(not(target_arch = "wasm32"))]
             #static_function
             #peer_impl
         };
-    ).into()
+    );
+    // std::fs::write("expands.rs", ts.to_string()).unwrap();
+    ts.into()
 }
 
