@@ -56,6 +56,11 @@ fn struct_rpc(attrs: TokenStream, item: ItemStruct) -> TokenStream {
                 #peer_name(c, ::core::marker::PhantomData::default())
             }
         }
+        impl #implgen From<#peer_name #tygen> for ::srpc::canary::Channel #whre {
+            fn from(c: #peer_name #tygen) -> Self {
+                c.0
+            }
+        }
         impl #implgen ::srpc::Peer for #ident #tygen #whre {
             type Struct = #peer_name #tygen;
         }
@@ -195,6 +200,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
         #repr
         enum __srpc_action {
             #(#method_names),*
+            // __private_switch_srpc,
         }
     );
 
@@ -247,6 +253,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
 
     let meta_ident = format_ident!("__srpc_inner_meta");
     let channel_ident = format_ident!("__srpc_inner_channel");
+    let context_ident = format_ident!("__srpc_inner_ctx");
 
     let matches = methods.clone().map(|method| {
         let ident = method.ident;
@@ -358,11 +365,15 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                 type Meta = ::std::sync::Arc<#top_type_meta>;
                 fn service(
                     #meta_ident: ::std::sync::Arc<#top_type_meta>,
-                ) -> Box<dyn Fn(::srpc::canary::igcp::BareChannel) + Send + Sync + 'static> {
-                    ::canary::service::run_metadata(#meta_ident, |#meta_ident: ::std::sync::Arc<#top_type_meta>, mut #channel_ident: ::srpc::canary::Channel| async move {
+                ) -> Box<dyn Fn(::srpc::canary::igcp::BareChannel, ::srpc::canary::Ctx) + Send + Sync + 'static> {
+                    ::canary::service::run_metadata(#meta_ident, |#meta_ident: ::std::sync::Arc<#top_type_meta>, mut #channel_ident: ::srpc::canary::Channel, #context_ident: ::srpc::canary::Ctx| async move {
                         loop {
                             match #channel_ident.receive::<__srpc_action>().await? {
                                 #(#matches),*
+                                // __private_switch_srpc => {
+                                //     let id = #channel_ident.receive::<String>().await?;
+                                    
+                                // }
                             }
                         }
                     })

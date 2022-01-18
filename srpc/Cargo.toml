@@ -11,8 +11,9 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# canary = { path = "../../canary/canary" }
-canary = "0.1.2"
+canary = { path = "../../canary/canary" }
+compact_str = "0.2"
+# canary = "0.1.2"
 srpc-macro = { path = "../srpc-macro", version = "0.1.1" }
 log = "0.4"
 serde_repr = "0.1"
