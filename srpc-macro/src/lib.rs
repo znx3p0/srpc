@@ -2,7 +2,12 @@ use heck::ToSnakeCase;
 use proc_macro::TokenStream;
 use proc_macro_error::abort;
 use quote::{format_ident, quote, ToTokens};
-use syn::{FnArg, Ident, ImplItem, ItemImpl, ItemStruct, LitStr, PatType, ReturnType, Type};
+use syn::{FnArg, Ident, ImplItem, ItemImpl, ItemStruct, PatType, ReturnType, Type};
+
+#[proc_macro]
+pub fn top_route(_: TokenStream) -> TokenStream {
+    quote!(__srpc_inner_ctx).into()
+}
 
 #[proc_macro_attribute]
 #[proc_macro_error::proc_macro_error]
@@ -30,14 +35,8 @@ pub fn rpc(attrs: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-fn struct_rpc(attrs: TokenStream, item: ItemStruct) -> TokenStream {
+fn struct_rpc(_: TokenStream, item: ItemStruct) -> TokenStream {
     let ident = &item.ident;
-    let endpoint = syn::parse::<LitStr>(attrs)
-        .and_then(|s| Ok(LitStr::new(&s.value().to_snake_case(), s.span())))
-        .unwrap_or(LitStr::new(
-            &ident.clone().to_string().to_snake_case(),
-            ident.span(),
-        ));
     let vis = &item.vis;
     let peer_name = format_ident!("{}Peer", &ident);
     let (implgen, tygen, whre) = item.generics.split_for_impl();
@@ -46,10 +45,6 @@ fn struct_rpc(attrs: TokenStream, item: ItemStruct) -> TokenStream {
 
     quote!(
         #item
-        #[cfg(not(target_arch = "wasm32"))]
-        impl #implgen ::srpc::canary::routes::RegisterEndpoint for #ident #tygen #whre {
-            const ENDPOINT: &'static str = #endpoint;
-        }
         #vis struct #peer_name #tygen #whre (pub ::srpc::canary::Channel, ::core::marker::PhantomData<( #(#ty_params),* )>);
         impl #implgen From<::srpc::canary::Channel> for #peer_name #tygen #whre {
             fn from(c: ::srpc::canary::Channel) -> Self {
@@ -200,7 +195,6 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
         #repr
         enum __srpc_action {
             #(#method_names),*
-            // __private_switch_srpc,
         }
     );
 
@@ -264,12 +258,12 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
         match (inputs, method.output, method.consume) {
             (None, None, MethodKind::Normal) => quote!(
                 __srpc_action::#ident => {
-                    #meta.#ident().await;
+                    #meta.#ident(&#context_ident).await;
                 }
             ),
             (None, Some(_), MethodKind::Normal) => quote!(
                 __srpc_action::#ident => {
-                    let res = #meta.#ident().await;
+                    let res = #meta.#ident(&#context_ident).await;
                     #channel_ident.send(res).await?;
                 }
             ),
@@ -287,7 +281,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                     __srpc_action::#ident => {
                         #[allow(unused_parens)]
                         let #inputs = #channel_ident.receive().await?;
-                        #meta.#ident(#(#args),*).await;
+                        #meta.#ident(#(#args),* , &#context_ident).await;
                     }
                 )
             },
@@ -303,7 +297,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                     __srpc_action::#ident => {
                         #[allow(unused_parens)]
                         let #inputs = #channel_ident.receive().await?;
-                        let res = #meta.#ident(#(#args),*).await;
+                        let res = #meta.#ident(#(#args),* , &#context_ident).await;
                         #channel_ident.send(res).await?;
                     }
                 )
@@ -314,7 +308,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                 }
                 quote! {
                     __srpc_action::#ident => {
-                        return #meta.#ident(#channel_ident).await;
+                        return #meta.#ident(#channel_ident, &#context_ident).await;
                     }
                 }
             }
@@ -324,7 +318,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                 }
                 quote! {
                     __srpc_action::#ident => {
-                        match #meta.#ident(#channel_ident).await {
+                        match #meta.#ident(#channel_ident, &#context_ident).await {
                             Ok(chan) => #channel_ident = chan,
                             Err(e) => return Err(e),
                         }
@@ -365,34 +359,10 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                 type Meta = ::std::sync::Arc<#top_type_meta>;
                 fn service(
                     #meta_ident: ::std::sync::Arc<#top_type_meta>,
-                ) -> Box<dyn Fn(::srpc::canary::igcp::BareChannel, ::srpc::canary::Ctx) + Send + Sync + 'static> {
-                    ::canary::service::run_metadata(#meta_ident, |#meta_ident: ::std::sync::Arc<#top_type_meta>, mut #channel_ident: ::srpc::canary::Channel, #context_ident: ::srpc::canary::Ctx| async move {
-                        loop {
-                            match #channel_ident.receive::<__srpc_action>().await? {
-                                #(#matches),*
-                                // __private_switch_srpc => {
-                                //     let id = #channel_ident.receive::<String>().await?;
-                                    
-                                // }
-                            }
-                        }
-                    })
-                }
-            }
-        }
-    };
-
-    let static_function = {
-        let impl_generics = impl_generics.clone();
-        quote! {
-            impl #impl_generics ::srpc::canary::service::StaticService for #top_type #whr {
-                type Meta = ::std::sync::Arc<#top_type_meta>;
-                type Chan = ::srpc::canary::Channel;
-                fn introduce(
-                    #meta_ident: ::std::sync::Arc<#top_type_meta>,
-                    mut #channel_ident: ::srpc::canary::Channel,
-                ) -> ::srpc::canary::runtime::JoinHandle<::srpc::canary::Result<()>> {
-                    ::srpc::canary::runtime::spawn(async move {
+                ) -> ::canary::service::Svc {
+                    ::canary::service::run_metadata(
+                        #meta_ident,
+                        |#meta_ident: ::std::sync::Arc<#top_type_meta>, mut #channel_ident: ::srpc::canary::Channel, #context_ident: ::srpc::canary::Ctx| async move {
                         loop {
                             match #channel_ident.receive::<__srpc_action>().await? {
                                 #(#matches),*
@@ -515,14 +485,20 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
         })
         .for_each(drop);
 
+    item.items.iter_mut().map(|f| {
+        if let ImplItem::Method(f) = f {
+            let typed = syn::parse2(quote!(#context_ident: &::srpc::canary::Ctx)).unwrap();
+            f.sig.inputs.push(typed);
+        }
+    }).for_each(drop);
+
     let ts = quote!(
         const _: () = {
+            #[cfg(not(target_arch = "wasm32"))]
             #item
             #enum_repr
             #[cfg(not(target_arch = "wasm32"))]
             #function
-            #[cfg(not(target_arch = "wasm32"))]
-            #static_function
             #peer_impl
         };
     );
