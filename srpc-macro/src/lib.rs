@@ -45,13 +45,13 @@ fn struct_rpc(_: TokenStream, item: ItemStruct) -> TokenStream {
 
     quote!(
         #item
-        #vis struct #peer_name #tygen #whre (pub ::srpc::canary::Channel, ::core::marker::PhantomData<( #(#ty_params),* )>);
-        impl #implgen From<::srpc::canary::Channel> for #peer_name #tygen #whre {
-            fn from(c: ::srpc::canary::Channel) -> Self {
+        #vis struct #peer_name #tygen #whre (pub ::srpc::__private::canary::Channel, ::core::marker::PhantomData<( #(#ty_params),* )>);
+        impl #implgen From<::srpc::__private::canary::Channel> for #peer_name #tygen #whre {
+            fn from(c: ::srpc::__private::canary::Channel) -> Self {
                 #peer_name(c, ::core::marker::PhantomData::default())
             }
         }
-        impl #implgen From<#peer_name #tygen> for ::srpc::canary::Channel #whre {
+        impl #implgen From<#peer_name #tygen> for ::srpc::__private::canary::Channel #whre {
             fn from(c: #peer_name #tygen) -> Self {
                 c.0
             }
@@ -122,10 +122,10 @@ impl RpcProvider {
     fn get_type<T: ToTokens>(&self, top: T) -> quote::__private::TokenStream {
         match self {
             RpcProvider::RwLock => quote! {
-                ::srpc::RwLock<#top>
+                ::srpc::__private::RwLock<#top>
             },
             RpcProvider::Mutex => quote! {
-                ::srpc::Mutex<#top>
+                ::srpc::__private::Mutex<#top>
             },
             RpcProvider::Ref => quote! {
                 #top
@@ -353,16 +353,16 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
     let function = {
         let impl_generics = impl_generics.clone();
         quote! {
-            impl #impl_generics ::srpc::canary::service::Service for #top_type #whr {
+            impl #impl_generics ::srpc::__private::canary::service::Service for #top_type #whr {
                 const ENDPOINT: &'static str = #endpoint;
                 type Pipeline = ();
                 type Meta = ::std::sync::Arc<#top_type_meta>;
                 fn service(
                     #meta_ident: ::std::sync::Arc<#top_type_meta>,
-                ) -> ::canary::service::Svc {
-                    ::canary::service::run_metadata(
+                ) -> ::srpc::__private::canary::service::Svc {
+                    ::srpc::__private::canary::service::run_metadata(
                         #meta_ident,
-                        |#meta_ident: ::std::sync::Arc<#top_type_meta>, mut #channel_ident: ::srpc::canary::Channel, #context_ident: ::srpc::canary::Ctx| async move {
+                        |#meta_ident: ::std::sync::Arc<#top_type_meta>, mut #channel_ident: ::srpc::__private::canary::Channel, #context_ident: ::srpc::__private::canary::Ctx| async move {
                         loop {
                             match #channel_ident.receive::<__srpc_action>().await? {
                                 #(#matches),*
@@ -383,7 +383,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
         let result = method.output
             .map(|s| *s.clone())
             .unwrap_or(syn::parse2(quote!(())).unwrap());
-        let result = quote!( ::srpc::canary::Result<#result> );
+        let result = quote!( ::srpc::__private::canary::Result<#result> );
 
         let inputs = method.inputs.unwrap_or_default();
         let mut params = vec![];
@@ -432,13 +432,13 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                 }
             },
             (true, true, MethodKind::Consume) => quote! {
-                pub async fn #name(mut self) -> ::srpc::canary::Result<::srpc::canary::Channel> {
+                pub async fn #name(mut self) -> ::srpc::__private::canary::Result<::srpc::__private::canary::Channel> {
                     self.0.send(__srpc_action::#name).await?;
                     Ok(self.0)
                 }
             },
             (true, true, MethodKind::Manual) => quote! {
-                pub async fn #name(mut self) -> ::srpc::canary::Result<::srpc::canary::Channel> {
+                pub async fn #name(mut self) -> ::srpc::__private::canary::Result<::srpc::__private::canary::Channel> {
                     self.0.send(__srpc_action::#name).await?;
                     Ok(self.0)
                 }
@@ -487,7 +487,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
 
     item.items.iter_mut().map(|f| {
         if let ImplItem::Method(f) = f {
-            let typed = syn::parse2(quote!(#context_ident: &::srpc::canary::Ctx)).unwrap();
+            let typed = syn::parse2(quote!(#context_ident: &::srpc::__private::canary::Ctx)).unwrap();
             f.sig.inputs.push(typed);
         }
     }).for_each(drop);
