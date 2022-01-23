@@ -80,6 +80,8 @@ enum MethodKind {
     Manual,        // reintroduce
     Server,        // similar to manual, but does not create a client method
     Client,        // create a client method
+    ServerManual,  // similar to manual, but does not create a client method
+    ClientManual,  // create a manual client method
     ServerConsume, // similar to consume, but does not create a client method
     ClientConsume, // create a client method that consumes
 }
@@ -165,7 +167,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
             .collect::<Vec<_>>();
         // this is done to prevent a bug. a rewrite of the macro should be done,
         // but it works for now.
-        items.sort_by_key(|elem| elem.attrs.len());
+        items.sort_by_cached_key(|elem| elem.attrs.len());
         items
     };
 
@@ -244,6 +246,14 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
             .attrs
             .iter()
             .any(|attr| quote!(#[client_consume]).to_string() == quote!(#attr).to_string());
+        let client_manual = s
+            .attrs
+            .iter()
+            .any(|attr| quote!(#[client_manual]).to_string() == quote!(#attr).to_string());
+        let server_manual = s
+            .attrs
+            .iter()
+            .any(|attr| quote!(#[server_manual]).to_string() == quote!(#attr).to_string());
         let consume = match (
             consume,
             manual,
@@ -251,21 +261,27 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
             server,
             server_consume,
             client_consume,
+            client_manual,
+            server_manual,
         ) {
-            (true, false, false, false, false, false) => MethodKind::Consume,
-            (false, true, false, false, false, false) => MethodKind::Manual,
-            (false, false, true, false, false, false) => MethodKind::Client,
-            (false, false, false, true, false, false) => MethodKind::Server,
-            (false, false, false, false, true, false) => MethodKind::ServerConsume,
-            (false, false, false, false, false, true) => MethodKind::ClientConsume,
-            (false, false, false, false, false, false) => MethodKind::Normal,
-            (consume, manual, client, server, server_consume, client_consume)
+            (true, false, false, false, false, false, false, false) => MethodKind::Consume,
+            (false, true, false, false, false, false, false, false) => MethodKind::Manual,
+            (false, false, true, false, false, false, false, false) => MethodKind::Client,
+            (false, false, false, true, false, false, false, false) => MethodKind::Server,
+            (false, false, false, false, true, false, false, false) => MethodKind::ServerConsume,
+            (false, false, false, false, false, true, false, false) => MethodKind::ClientConsume,
+            (false, false, false, false, false, false, false, false) => MethodKind::Normal,
+            (false, false, false, false, false, false, true, false) => MethodKind::ClientManual,
+            (false, false, false, false, false, false, false, true) => MethodKind::ServerManual,
+            (consume, manual, client, server, server_consume, client_consume, client_manual, server_manual)
                 if consume as u8
                     + manual as u8
                     + client as u8
                     + server as u8
                     + server_consume as u8
                     + client_consume as u8
+                    + client_manual as u8
+                    + server_manual as u8
                     > 1 =>
             {
                 abort!(
@@ -273,7 +289,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                     "cannot have a method with more than one modifier"
                 )
             }
-            (_, _, _, _, _, _) => panic!("zasdfasdfasdf"),
+            (_, _, _, _, _, _, _, _) => panic!("zasdfasdfasdf"),
         };
 
         let iter = s
@@ -313,13 +329,13 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
             (None, None, MethodKind::Normal) => quote!(
                 __srpc_action::#ident => {
                     #meta.#ident(&#context_ident).await;
-                }
+                },
             ),
             (None, Some(_), MethodKind::Normal) => quote!(
                 __srpc_action::#ident => {
                     let res = #meta.#ident(&#context_ident).await;
                     #channel_ident.send(res).await?;
-                }
+                },
             ),
             (Some(inputs), None, MethodKind::Normal) => {
                 let mut args = vec![];
@@ -336,7 +352,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                         #[allow(unused_parens)]
                         let #inputs = #channel_ident.receive().await?;
                         #meta.#ident(#(#args),* , &#context_ident).await;
-                    }
+                    },
                 )
             },
             (Some(inputs), Some(_), MethodKind::Normal) => {
@@ -353,7 +369,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                         let #inputs = #channel_ident.receive().await?;
                         let res = #meta.#ident(#(#args),* , &#context_ident).await;
                         #channel_ident.send(res).await?;
-                    }
+                    },
                 )
             },
             (Some(inputs), Some(_), MethodKind::Consume) => {
@@ -363,7 +379,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                 quote! {
                     __srpc_action::#ident => {
                         return #meta.#ident(#channel_ident, &#context_ident).await;
-                    }
+                    },
                 }
             }
             (Some(inputs), Some(_), MethodKind::Manual) => {
@@ -376,7 +392,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                             Ok(chan) => #channel_ident = chan,
                             Err(e) => return Err(e),
                         }
-                    }
+                    },
                 }
             },
             (Some(inputs), Some(_), MethodKind::Server) => {
@@ -389,7 +405,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                             Ok(_) => (),
                             Err(e) => return Err(e),
                         }
-                    }
+                    },
                 }
             },
             (Some(inputs), Some(_), MethodKind::ServerConsume) => {
@@ -399,30 +415,33 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                 quote! {
                     __srpc_action::#ident => {
                         return #meta.#ident(#channel_ident, &#context_ident).await;
-                    }
+                    },
                 }
             }
 
-            (None, None, MethodKind::Client) => quote!(),
-            (None, Some(_), MethodKind::Client) => quote!(),
-            (Some(_), None, MethodKind::Client) => quote!(),
-            (Some(_), Some(_), MethodKind::Client) => quote!(),
-            (None, None, MethodKind::ClientConsume) => quote!(),
-            (None, Some(_), MethodKind::ClientConsume) => quote!(),
-            (Some(_), None, MethodKind::ClientConsume) => quote!(),
-            (Some(_), Some(_), MethodKind::ClientConsume) => quote!(),
-            (Some(_), None, MethodKind::Server) => abort!(method.ident.span(), "server methods need an argument with type Channel and return a canary::Result<Channel>"),
-            (None, Some(_), MethodKind::Server) => abort!(method.ident.span(), "server methods need an argument with type Channel and return a canary::Result<Channel>"),
-            (None, None, MethodKind::Server) => abort!(method.ident.span(), "server methods need an argument with type Channel and return a canary::Result<Channel>"),
-            (None, None, MethodKind::ServerConsume) => abort!(method.ident.span(), "server methods need an argument with type Channel and a context, and return a canary::Result<()>"),
-            (None, Some(_), MethodKind::ServerConsume) => abort!(method.ident.span(), "server methods need an argument with type Channel and a context, and return a canary::Result<()>"),
-            (Some(_), None, MethodKind::ServerConsume) => abort!(method.ident.span(), "server methods need an argument with type Channel and a context, and return a canary::Result<()>"),
-            (None, None, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume need an argument with type Channel and return a canary::Result<()>"),
-            (None, Some(_), MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only return a canary::Result<()>"),
-            (Some(_), None, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only return a canary::Result<()>"),
+            (Some(inputs), Some(_), MethodKind::ServerManual) => {
+                if inputs.len() != 1 {
+                    abort!(method.ident.span(), "manual methods can only have one argument with type Channel and return a canary::Result<Channel>")
+                }
+                quote! {
+                    __srpc_action::#ident => {
+                        match #meta.#ident(#channel_ident, &#context_ident).await {
+                            Ok(chan) => #channel_ident = chan,
+                            Err(e) => return Err(e),
+                        }
+                    },
+                }
+            },
+
+            (_, _, MethodKind::Client) => quote!(),
+            (_, _, MethodKind::ClientConsume) => quote!(),
+            (_, _, MethodKind::ClientManual) => quote!(),
+            (_, _, MethodKind::Server) => abort!(method.ident.span(), "server methods need an argument with type Channel and return a canary::Result<Channel>"),
+            (_, _, MethodKind::ServerConsume) => abort!(method.ident.span(), "server methods need an argument with type Channel and a context, and return a canary::Result<()>"),
+            (_, _, MethodKind::ServerManual) => abort!(method.ident.span(), "server methods need an argument with type Channel and a context, and return a canary::Result<Channel>"),
+            (_, _, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume need an argument with type Channel and return a canary::Result<()>"),
             (None, None, MethodKind::Manual) => abort!(method.ident.span(), "manual methods need an argument with type Channel and return a canary::Result<Channel>"),
-            (None, Some(_), MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only return a canary::Result<Channel>"),
-            (Some(_), None, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only return a canary::Result<Channel>"),
+            (_, _, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only return a canary::Result<Channel>"),
         }
     }).collect::<Vec<_>>();
 
@@ -457,7 +476,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                         |#meta_ident: ::std::sync::Arc<#top_type_meta>, mut #channel_ident: ::srpc::__private::canary::Channel, #context_ident: ::srpc::__private::canary::Ctx| async move {
                         loop {
                             match #channel_ident.receive::<__srpc_action>().await? {
-                                #(#matches),*
+                                #(#matches)*
                             }
                         }
                     })
@@ -547,6 +566,26 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                     }
                 }
             },
+            (true, true, MethodKind::ClientManual) => {
+                let block = method.block;
+                let mut inputs = inputs.clone();
+                let chan_ident = &inputs.first().take().unwrap().pat;
+                let chan = inputs.remove(0);
+                let chan_ty = &chan.ty;
+                quote! { // todo!
+                    pub async fn #name(&mut self #(,#inputs)*) -> #res {
+                        self.0.send(__srpc_action::#name).await?;
+
+                        let #chan_ident: #chan_ty = &mut self.0;
+
+                        let __private_srpc_inner_result = {
+                            #block
+                        };
+                        __private_srpc_inner_result
+                    }
+                }
+            },
+
             (true, true, MethodKind::Manual) => quote! {
                 pub async fn #name(mut self) -> ::srpc::__private::canary::Result<::srpc::__private::canary::Channel> {
                     self.0.send(__srpc_action::#name).await?;
@@ -573,16 +612,12 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
             },
             (_, _, MethodKind::Server) => quote!(),
             (_, _, MethodKind::ServerConsume) => quote!(),
+            (_, _, MethodKind::ServerManual) => quote!(),
             (_, _, MethodKind::Client) => abort!(method.ident.span(), "client methods can only have an argument with type &mut Channel"),
-            (true, false, MethodKind::ClientConsume) => abort!(method.ident.span(), "methods that consume need to have an argument with type Channel and return a canary::Result<T>"),
-            (false, true, MethodKind::ClientConsume) => abort!(method.ident.span(), "methods that consume need to have an argument with type Channel and return a canary::Result<T>"),
-            (false, false, MethodKind::ClientConsume) => abort!(method.ident.span(), "methods that consume need to have an argument with type Channel and return a canary::Result<T>"),
-            (true, false, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only have an argument with type Channel and return a canary::Result<()>"),
-            (false, true, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only have an argument with type Channel and return a canary::Result<()>"),
-            (false, false, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only have an argument with type Channel and return a canary::Result<()>"),
-            (true, false, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only have an argument with type Channel and return a canary::Result<Channel>"),
-            (false, true, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only have an argument with type Channel and return a canary::Result<Channel>"),
-            (false, false, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only have an argument with type Channel and return a canary::Result<Channel>"),
+            (_, _, MethodKind::ClientManual) => abort!(method.ident.span(), "manual methods need to have an argument with type &mut Channel and return a canary::Result<T>"),
+            (_, _, MethodKind::ClientConsume) => abort!(method.ident.span(), "methods that consume need to have an argument with type Channel and return a canary::Result<T>"),
+            (_, _, MethodKind::Consume) => abort!(method.ident.span(), "methods that consume can only have an argument with type Channel and return a canary::Result<()>"),
+            (_, _, MethodKind::Manual) => abort!(method.ident.span(), "manual methods can only have an argument with type Channel and return a canary::Result<Channel>"),
         }
 
     }).collect::<Vec<_>>();
@@ -602,6 +637,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                 for attr in attrs {
                     if quote!(#[client]).to_string() == quote!(#attr).to_string()
                         || quote!(#[client_consume]).to_string() == quote!(#attr).to_string()
+                        || quote!(#[client_manual]).to_string() == quote!(#attr).to_string()
                     {
                         stay = false;
                     }
@@ -618,6 +654,7 @@ fn impl_rpc_provider(provider: RpcProvider, mut item: ItemImpl) -> TokenStream {
                         && quote!(#[manual]).to_string() != quote!(#attr).to_string()
                         && quote!(#[server]).to_string() != quote!(#attr).to_string()
                         && quote!(#[server_consume]).to_string() != quote!(#attr).to_string()
+                        && quote!(#[server_manual]).to_string() != quote!(#attr).to_string()
                     {
                         new_attrs.push(attr)
                     }
