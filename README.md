@@ -49,3 +49,12 @@ async fn main() -> Result<()> {
     Ok(())
 }
 ```
+
+SRPC also allows method attributes for flexibility.
+The current attributes you can apply to methods are:
+- `#[consume]`
+- `#[server_consume]`
+- `#[client_consume]`
+- `#[server]`
+- `#[client]`
+- `#[manual]`

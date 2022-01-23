@@ -1,4 +1,3 @@
-
 use canary::Channel;
 
 pub use srpc_macro::*;
